@@ -57,6 +57,27 @@ Append this row to the profile's `cordis.patch.yml` and make sure
       name: '@zilliz/memsearch-dsh'
 ```
 
+### From this fork (Windows)
+
+Upstream cannot launch the `dsh-headless` summarizer on Windows (see
+*Windows: launching the headless summarizer* below). To use this fork's build in
+a profile, clone the repository and add the plugin directory by path — the
+package lives in `plugins/dsh`, so a `github:`/URL spec that installs the
+repository root will not work:
+
+```bash
+git clone https://github.com/takomitkm/memsearch
+dsh plugin --profile desktop add /path/to/memsearch/plugins/dsh
+```
+
+> Prefer the UI for this: a `dsh plugin …` run started from a terminal inherits
+> pnpm's descriptors, so the plugin manager has no output stream to watch and
+> therefore no silence timeout — if pnpm stalls, the run hangs indefinitely and
+> leaves `.plugin-manager/run.json` behind, which then blocks every later
+> profile operation. Runs started from the web UI are captured, and a captured
+> run that prints nothing for `idleTimeoutMs` (default 600 000 ms) is terminated
+> by DSH itself.
+
 ### Verify it loaded
 
 Start DSH and check the session log for the plugin mount, or confirm the
@@ -143,7 +164,9 @@ a direct LLM call; configure nothing and you get a headless agent.
   the Web UI model picker) instead. The boot is asynchronous and fire-and-forget,
   so the few seconds of headless startup never block the conversation. Requires
   `dsh` on PATH or `DSH_CLI` set to the CLI
-  entry. The sub-agent is booted with `MEMSEARCH_DSH_SUMMARIZE=1`; the plugin
+  entry — on Windows neither of those is reachable in a plain DSH Desktop
+  install, see *Windows: launching the headless summarizer* below. The sub-agent
+  is booted with `MEMSEARCH_DSH_SUMMARIZE=1`; the plugin
   checks that flag and stays inert (no capture / inject / skill) inside the
   summarizer, so the summarizer's own session is never re-captured in a loop.
 - **`custom-llm`** — `scripts/summarize.py` imports memsearch's
@@ -168,6 +191,154 @@ A failed summarization writes a short unavailable note (mirroring Claude
 Code's behavior — memory stays clean, the transcript anchor keeps the raw
 content reachable for progressive disclosure), and logs a visible warning
 through the DSH logger.
+
+### Windows: launching the headless summarizer
+
+**Symptom.** Every captured turn writes a note like this instead of a summary,
+and nothing ever lands in `.memsearch/memory/`:
+
+```
+Memory summary unavailable: spawn C:\Users\<you>\AppData\Local\Programs\DeepSeek ENOENT
+```
+
+The truncated path is the clue, but it is not the only way this fails — on a
+Windows DSH Desktop install all three ways upstream looks for the CLI come up
+empty, so the summarizer never starts at all.
+
+**Why the three lookups fail.** DSH Desktop ships its CLI as a `cmd.exe` batch
+launcher, `dsh.cmd`, which points at the Electron binary with
+`ELECTRON_RUN_AS_NODE=1` and `--expose-internals …\dsh-desktop-host\lib\cli.js`:
+
+1. **The PATH probe** runs `bash -c 'command -v dsh'`. Windows resolves
+   executables through `PATHEXT`, and the MSYS bash builds tested here do not
+   apply it to that lookup: `command -v dsh` fails, plain `dsh` reports
+   "command not found", while `command -v dsh.cmd` succeeds. The DSH installer
+   does add its launcher directories to the user `PATH`
+   (`%USERPROFILE%\.dsh\bin`, plus `…\resources\runtime\cli\bin` under the app
+   directory), so `dsh` works in `cmd.exe` and PowerShell but is invisible to
+   this probe.
+2. **`DSH_CLI`** was split on whitespace. DSH's own path contains a space
+   (`Program Files\DeepSeek Harness`, or here `AppData\Local\Programs\DeepSeek
+   Harness`), so the value became `['C:\Users\…\Programs\DeepSeek', 'Harness', …]`
+   and `spawn` reported `ENOENT` on the first fragment — the error above.
+   A path with no spaces does survive this branch.
+3. **The pnpm global bin** is looked up as `$HOME/.local/share/pnpm/dsh`, a POSIX
+   layout. Here `HOME` is set to the profile directory, so that resolves to
+   `C:\Users\<you>\.local\share\pnpm\dsh`, which does not exist — pnpm's global
+   bin on Windows is `%LOCALAPPDATA%\pnpm`, and DSH Desktop is not installed
+   through pnpm at all, so nothing is in either place.
+
+Even if the launcher path were found, `spawn`/`execFile` cannot start a `.cmd`
+directly: since the CVE-2024-27980 fix Node rejects it with `EINVAL` unless a
+shell is involved. And routing it through `cmd.exe /c` loses the transcript —
+`cmd` treats an embedded newline as a command separator, so a multi-line prompt
+arrives as its first line only (both measured, see *Verify* below).
+
+**Resolution order after this patch.** The first three branches are upstream's,
+unchanged; the Windows branch is a last resort that only runs when everything
+before it failed, so POSIX behavior is untouched:
+
+1. `dsh` resolvable through `bash` (as before).
+2. `DSH_CLI` — now kept as **one** argv entry when the trimmed value is an
+   existing file; split on whitespace only when it is an interpreter invocation.
+3. `$HOME/.local/share/pnpm/dsh` (as before).
+4. **New, `win32` only:** the first existing PowerShell shim among
+   `<DSH_HOME|HOME|USERPROFILE>/bin/dsh.ps1` and
+   `<…>/.dsh/bin/dsh.ps1`, launched as
+   `pwsh.exe -NoProfile -File <shim> …`. `pwsh.exe` is a real executable under a
+   space-free path from `%LOCALAPPDATA%\Microsoft\WindowsApps` (on the default
+   user `PATH`), and `-File` binds each remaining argv entry to `$args` verbatim,
+   so multi-line transcripts arrive intact.
+
+**Set it up.** `DSH_HOME` is not set by DSH Desktop, so the shim is found
+through `HOME`/`USERPROFILE` — put it where DSH already keeps its own launcher:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.dsh\bin" | Out-Null
+```
+
+Write `%USERPROFILE%\.dsh\bin\dsh.ps1` (adjust the two paths to your install;
+they are absolute on purpose, so the shim works from any working directory):
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$exe = 'C:\Users\<you>\AppData\Local\Programs\DeepSeek Harness\DeepSeek Harness.exe'
+$cli = 'C:\Users\<you>\AppData\Local\Programs\DeepSeek Harness\resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js'
+$env:ELECTRON_RUN_AS_NODE = '1'
+& $exe --expose-internals $cli @args
+exit $LASTEXITCODE
+```
+
+The shim is found by `pwsh.exe`, which is PowerShell 7+ — it ships as a separate
+install from the built-in Windows PowerShell 5.1, and lands in
+`%LOCALAPPDATA%\Microsoft\WindowsApps` (on the default user `PATH`) when installed
+from the Store or `winget install Microsoft.PowerShell`. Check with
+`where.exe pwsh.exe`. If you have only 5.1, set `DSH_CLI` to the whole invocation
+instead — that is exactly what branch 2 now accepts:
+
+```
+DSH_CLI = pwsh.exe -NoProfile -File C:\Users\<you>\.dsh\bin\dsh.ps1
+```
+
+Because that value is several tokens and not one existing file, branch 2 splits
+it into the right argv. The single-path form is no longer truncated either — a
+value that names an existing file is kept as one entry however many spaces it
+contains — but pointing `DSH_CLI` straight at `…\DeepSeek Harness\…\dsh.cmd`
+still fails: the summarizer spawns the resolved command without a shell, and
+Node will not start a `.cmd` that way. Keep the shim as the target.
+
+Branch 4 needs no exported variable at all, which is why the shim is the
+recommended form. Restart DSH after changing the environment, and note that
+`dsh-headless` boots the sub-agent with the deployment's `agent-default-model`
+(see the mode table above), not with `[plugins.dsh.summarize]`.
+
+**Verify.** From Git Bash, the shim must answer like the CLI does:
+
+```bash
+pwsh.exe -NoProfile -File "$USERPROFILE/.dsh/bin/dsh.ps1" --version   # -> 0.2.0-rc.x
+```
+
+Then ask the **installed plugin** what it resolves — `detectDshCmd` is exported,
+so this is exactly what the summarizer will spawn. A `dsh` that works in your
+own shell proves nothing here:
+
+```bash
+node --input-type=module -e 'const m=await import("file:///"+process.argv[1]);console.log(JSON.stringify(m.detectDshCmd()))' \
+  "C:/Users/<you>/.dsh/profiles/<profile>/node_modules/@zilliz/memsearch-dsh/index.js"
+```
+
+Forward slashes only in that path — they work in a `file://` URL, and typing
+backslashes invites shell-mangling mistakes. Replace `<profile>` with the profile
+the plugin is installed in (`desktop`, `headless`, …). DSH Desktop does not put a
+`node` on `PATH`; if `node` is missing, run the same command through the app's own
+Node runtime by prefixing `ELECTRON_RUN_AS_NODE=1` and using
+`C:/Users/<you>/AppData/Local/Programs/DeepSeek Harness/DeepSeek Harness.exe`
+in place of `node`.
+
+Expected output on Windows:
+
+```json
+["pwsh.exe","-NoProfile","-File","C:\\Users\\<you>\\.dsh\\bin\\dsh.ps1"]
+```
+
+To reproduce the two claims this design rests on (both measured here):
+
+```bash
+node -e 'const{spawnSync}=require("node:child_process");const o={encoding:"utf-8"};
+console.log("direct .cmd spawn:", spawnSync(process.env.USERPROFILE+"\\.dsh\\bin\\dsh.cmd",["--version"],o).error?.code);
+console.log("transcript through cmd.exe:", JSON.stringify(spawnSync("cmd.exe",["/c","echo","a\\nb\\nc"],o).stdout))'
+```
+
+Expected:
+
+```
+direct .cmd spawn: EINVAL
+transcript through cmd.exe: "a\r\n"
+```
+
+Node refuses to start a `.cmd` without a shell, and `cmd` reads the embedded
+newline as a command separator, so everything after the first line of the
+transcript is dropped. `pwsh -File` passes it whole.
 
 ## How it works
 

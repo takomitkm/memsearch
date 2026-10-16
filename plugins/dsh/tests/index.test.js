@@ -150,6 +150,29 @@ test('detectDshCmd: DSH_CLI with trailing spaces is trimmed', () => {
   }
 })
 
+test('detectDshCmd: DSH_CLI naming one existing path keeps it as a single argv entry', () => {
+  // A launcher path with spaces ("...\DeepSeek Harness\...\dsh.cmd") must not be
+  // split on whitespace: spawn would otherwise receive a truncated executable.
+  const prevCli = process.env.DSH_CLI
+  const prevPath = process.env.PATH
+  const root = fs.mkdtempSync(`${os.tmpdir()}/memsearch spaced-`)
+  const dir = `${root}/DeepSeek Harness`
+  const launcher = `${dir}/dsh.cmd`
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(launcher, '@echo off\r\n', 'utf-8')
+  try {
+    process.env.PATH = '/nonexistent'
+    process.env.DSH_CLI = launcher
+    const cmd = detectDshCmd()
+    assert.deepEqual(cmd, [launcher])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+    if (prevCli === undefined) delete process.env.DSH_CLI
+    else process.env.DSH_CLI = prevCli
+    process.env.PATH = prevPath
+  }
+})
+
 test('summarizeTurn: explicit custom-llm mode dispatches to the LLM path', async () => {
   // custom-llm mode spawns python3 summarize.py; without a real transcript we
   // only assert it picks that branch (no crash before spawn).
@@ -244,10 +267,14 @@ test('summarizeTurn: default (no mode configured) dispatches to dsh-headless', a
   const prevCli = process.env.DSH_CLI
   const prevPath = process.env.PATH
   const prevHome = process.env.HOME
+  const prevDshHome = process.env.DSH_HOME
+  const prevProfile = process.env.USERPROFILE
   try {
     delete process.env.DSH_CLI
     process.env.PATH = '/nonexistent'
     process.env.HOME = '/nonexistent-home' // mask pnpm-global dsh fallback
+    delete process.env.DSH_HOME // mask the Windows pwsh-shim fallback
+    process.env.USERPROFILE = '/nonexistent-home'
     const opts = { agentName: 'X', summarizeProvider: '', summarizeModel: '' } // no summarizeMode
     const ctx = { logger: { warn: () => {} } }
     const render = '=== Turn 1 ===\n\n[User]: hi\n\n[Assistant]: hello'
@@ -261,6 +288,10 @@ test('summarizeTurn: default (no mode configured) dispatches to dsh-headless', a
     process.env.PATH = prevPath
     if (prevHome === undefined) delete process.env.HOME
     else process.env.HOME = prevHome
+    if (prevDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevDshHome
+    if (prevProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prevProfile
   }
 })
 
@@ -268,10 +299,14 @@ test('summarizeTurn: dsh-headless mode without CLI errors visibly', async () => 
   const prevCli = process.env.DSH_CLI
   const prevPath = process.env.PATH
   const prevHome = process.env.HOME
+  const prevDshHome = process.env.DSH_HOME
+  const prevProfile = process.env.USERPROFILE
   try {
     delete process.env.DSH_CLI
     process.env.PATH = '/nonexistent'
     process.env.HOME = '/nonexistent-home' // mask pnpm-global dsh fallback
+    delete process.env.DSH_HOME // mask the Windows pwsh-shim fallback
+    process.env.USERPROFILE = '/nonexistent-home'
     const opts = { summarizeMode: 'dsh-headless', agentName: 'X', summarizeProvider: '', summarizeModel: '' }
     const ctx = { logger: { warn: () => {} } }
     const render = '=== Turn 1 ===\n\n[User]: hi\n\n[Assistant]: hello'
@@ -285,6 +320,10 @@ test('summarizeTurn: dsh-headless mode without CLI errors visibly', async () => 
     process.env.PATH = prevPath
     if (prevHome === undefined) delete process.env.HOME
     else process.env.HOME = prevHome
+    if (prevDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = prevDshHome
+    if (prevProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prevProfile
   }
 })
 

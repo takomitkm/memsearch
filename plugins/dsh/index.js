@@ -1024,10 +1024,35 @@ function detectDshCmd() {
   }
   if (onPath('dsh')) return ['dsh']
   const fromEnv = process.env.DSH_CLI
-  if (fromEnv) return fromEnv.split(/\s+/).filter(Boolean)
+  if (fromEnv) {
+    // A single launcher path may contain spaces (`C:\Program Files\...\DeepSeek
+    // Harness\...`); splitting it on whitespace hands `spawn` a truncated
+    // executable. Treat the value as one argv entry only when that whole string
+    // is an existing file, otherwise it is an interpreter invocation.
+    const trimmed = fromEnv.trim()
+    if (existsSync(trimmed)) return [trimmed]
+    return trimmed.split(/\s+/).filter(Boolean)
+  }
   const home = process.env.HOME || ''
   const pnpmBin = join(home, '.local', 'share', 'pnpm')
   if (existsSync(join(pnpmBin, 'dsh'))) return [join(pnpmBin, 'dsh')]
+  // Windows as a last resort: the PATH probe above goes through bash, which does
+  // not see the `.cmd` launcher DSH installs in its runtime bin, and a `.cmd` is
+  // not spawnable without a shell in any case. A PowerShell shim is the reliable
+  // form — `pwsh.exe` is a real executable, and it forwards multi-line arguments
+  // intact (`cmd.exe /c` treats embedded newlines as command separators and
+  // truncates the transcript). Anchored on DSH_HOME/HOME/USERPROFILE so it needs
+  // no DSH-specific export; see the Windows note in README.md for the shim file.
+  if (process.platform === 'win32') {
+    const shim = [process.env.DSH_HOME, process.env.HOME, process.env.USERPROFILE]
+      .filter(Boolean)
+      .reduce(
+        (acc, root) => acc.concat(join(root, 'bin', 'dsh.ps1'), join(root, '.dsh', 'bin', 'dsh.ps1')),
+        []
+      )
+      .find((p) => existsSync(p))
+    if (shim) return ['pwsh.exe', '-NoProfile', '-File', shim]
+  }
   return null
 }
 
