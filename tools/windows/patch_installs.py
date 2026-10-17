@@ -38,7 +38,7 @@ REPO = Path(__file__).resolve().parents[2]
 # Baseline hash of the unpatched published plugin file. A target matching this
 # means the patch was overwritten by a reinstall; anything else means the file
 # was edited by hand, which is reported but still repaired from the repository.
-UPSTREAM_PLUGIN_INDEX_JS = "b7007701d1a2ff9c1b7ec5b03ea51b8a685c7a5d0e39bf41d1b0deedcd5c8b31"
+UPSTREAM_PLUGIN_INDEX_JS = "b7007701149f528a0c63092f4660f0eac630c10b5b2ecde3fbfcf3118b963149"
 
 PLUGIN_FILES = ["index.js", "README.md"]
 PLUGIN_SOURCE = REPO / "plugins" / "dsh"
