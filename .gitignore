@@ -23,6 +23,7 @@ htmlcov/
 
 # Runtime
 .memsearch/
+.patch-backups/
 CONTEXT.md
 CLAUDE.local.md
 AGENTS.local.md
