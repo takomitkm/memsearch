@@ -58,7 +58,11 @@ export const inject = ['agents', 'skills', 'sessionPersistence']
 const DEFAULT_AGENT_NAME = 'DeepSeek Harness'
 const MEMSEARCH_MARKER = '[memsearch] Retrieved memory context attached.'
 const SEARCH_TOP_K = 5
-const SEARCH_TIMEOUT_MS = 15000
+// A second-stage reranker that runs on a remote CPU service turns one recall
+// search into ~51 s measured (15 candidates, Qwen3-Reranker via an SSH
+// tunnel). Upstream's 15 s cap killed it silently, and runSearch only reports
+// that as a warning, so the symptom is memory simply never being injected.
+const SEARCH_TIMEOUT_MS = 90000
 const SUMMARIZE_TIMEOUT_MS = 30000
 const CAPTURE_MAX_CHARS = 6000
 const INJECT_SNIPPET_CHARS = 180

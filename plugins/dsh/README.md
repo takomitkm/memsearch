@@ -355,7 +355,11 @@ transcript is dropped. `pwsh -File` passes it whole.
   over the user's question. Only when the search returns chunks does it inject
   them plus a `[memsearch] Retrieved memory context attached.` marker;
   otherwise the decision is returned unchanged (zero context cost). The model
-  still evaluates whether each candidate chunk is relevant.
+  still evaluates whether each candidate chunk is relevant. Search runs with a
+  90 s budget (`SEARCH_TIMEOUT_MS`, `index.js`) because a second-stage reranker
+  served by a remote CPU box adds ~46 s per call; a killed search only appears
+  as a `logger.warn`, so an over-tight cap looks like "memory is never
+  injected".
 - **Recall** — registers a `memory-recall` skill (invocable through DSH's
   native `skill` tool) that performs search → expand → transcript drill-down
   and returns a curated summary.
