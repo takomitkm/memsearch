@@ -406,8 +406,9 @@ Indexed 42 chunks.
 
 Run a semantic search query against indexed chunks. Uses [hybrid search](https://milvus.io/docs/multi-vector-search.md) (dense vector cosine similarity + [BM25](https://en.wikipedia.org/wiki/Okapi_BM25) full-text) with [RRF](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf) reranking for best results.
 
-Optional second-stage reranking can use a local cross-encoder or the remote Jev
-provider after RRF fusion. To enable Jev in trusted global configuration:
+Optional second-stage reranking can use a local cross-encoder, the remote Jev
+provider, or your own rerank HTTP service after RRF fusion. To enable Jev in
+trusted global configuration:
 
 ```bash
 export TYPESAFE_API_KEY="your-key"
@@ -418,6 +419,20 @@ memsearch search "how to configure Redis caching"
 This sends the query and candidate contents to TypeSafe and requires no local
 reranker weights. It is disabled by default. See [reranker configuration](home/configuration.md#optional-remote-reranking)
 and the [bilingual evaluation](https://github.com/zilliztech/memsearch/blob/main/evaluation/reranking-evaluation.md).
+
+To rerank against a self-hosted service instead, point the prefix at it:
+
+```bash
+export MEMSEARCH_QWEN_RERANKER_URL="http://127.0.0.1:8081/v1/rerank"
+memsearch config set reranker.model "qwen-api:Qwen3-Reranker-8B"
+memsearch search "how to configure Redis caching"
+```
+
+The same query and candidate contents leave the machine, but go to your own
+endpoint. `MEMSEARCH_QWEN_RERANKER_URL` defaults to
+`http://127.0.0.1:8081/v1/rerank` when unset. Each request waits up to 60 s,
+which a CPU-served cross-encoder can exceed. See
+[reranker configuration](home/configuration.md#self-hosted-rerank-service).
 
 ### Options
 

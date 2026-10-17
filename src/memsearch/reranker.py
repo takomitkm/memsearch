@@ -11,6 +11,8 @@ Local backends are auto-detected at runtime:
 If neither is installed, reranking is silently skipped.
 
 Model names prefixed with ``jev:`` explicitly select the remote Jev API instead.
+Model names prefixed with ``qwen-api:`` select a self-hosted rerank HTTP service
+instead; anything else stays on the local backends above.
 """
 
 from __future__ import annotations
@@ -256,8 +258,10 @@ def rerank(
         Search results from MilvusStore.search(). Each dict must have
         a ``content`` key with the chunk text.
     model_name:
-        HuggingFace model ID for the cross-encoder, or ``jev:jev-latest``
-        for remote reranking using ``TYPESAFE_API_KEY``.
+        HuggingFace model ID for the cross-encoder, ``jev:jev-latest``
+        for remote reranking using ``TYPESAFE_API_KEY``, or
+        ``qwen-api:Qwen3-Reranker-8B`` for a self-hosted rerank service
+        reached through ``MEMSEARCH_QWEN_RERANKER_URL``.
     top_k:
         Return only the top-k results after reranking.
         0 means return all results (re-sorted).
@@ -274,6 +278,11 @@ def rerank(
         from .jev_reranker import JevReranker
 
         return JevReranker(model=model_name.removeprefix("jev:")).rerank(query, results, top_k=top_k)
+
+    if model_name.startswith("qwen-api:"):
+        from .qwen_reranker import QwenApiReranker
+
+        return QwenApiReranker(model=model_name.removeprefix("qwen-api:")).rerank(query, results, top_k=top_k)
 
     backend = _detect_backend()
     if backend == "onnx":

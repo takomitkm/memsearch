@@ -57,7 +57,8 @@ MemSearch(
 | `exclude` | `list[str] \| None` | `None` | Additional gitignore-style patterns relative to each directory index root |
 
 `reranker_model` defaults to an empty string (disabled). Set a local
-cross-encoder model ID or `jev:jev-latest` for remote Jev reranking.
+cross-encoder model ID, `jev:jev-latest` for remote Jev reranking, or
+`qwen-api:<model>` for a self-hosted rerank HTTP service.
 
 ### Optional Jev reranking
 
@@ -96,6 +97,45 @@ ranking; no accept/reject threshold has been calibrated for this dataset.
 
 See the [reranking evaluation](https://github.com/zilliztech/memsearch/blob/main/evaluation/reranking-evaluation.md) for the frozen
 candidate comparison with Voyage and its limitations.
+
+### Optional self-hosted rerank service
+
+`qwen-api:` selects an HTTP rerank endpoint you run yourself — vLLM's
+`/v1/rerank` and compatible relays. The URL comes from
+`MEMSEARCH_QWEN_RERANKER_URL`, or from the constructor when you build the
+adapter directly:
+
+```python
+mem = MemSearch(paths=["./memory"], reranker_model="qwen-api:Qwen3-Reranker-8B")
+results = await mem.search("Why was the cache policy changed?", top_k=5)
+```
+
+Through `reranker_model` the request timeout is the adapter default, 60 s.
+For candidates obtained elsewhere, or to bound the wait differently, use the
+adapter directly:
+
+```python
+from memsearch.qwen_reranker import QwenApiReranker
+
+ranked = QwenApiReranker(
+    "Qwen3-Reranker-8B",
+    url="http://127.0.0.1:8081/v1/rerank",
+    timeout=120.0,
+).rerank(
+    "Why was the cache policy changed?",
+    [{"content": "The policy changed to prevent stale answers.", "source": "notes.md"}],
+    top_k=5,
+)
+```
+
+One request carries the query and every candidate text, and
+`score` becomes the returned `relevance_score`. Candidates the service omits
+from `results` — a `top_n` response shorter than the request — are dropped.
+Ties retain the original order. Non-numeric scores, duplicate or out-of-range
+indices, and transport failures raise rather than falling back to the
+unreranked order. `MemSearch.search()` fetches three times `top_k` before
+reranking and runs this request off the event loop, so a slow service does not
+stall other async work.
 
 ### Context Manager
 
