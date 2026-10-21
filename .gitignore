@@ -37,3 +37,6 @@ AGENTS.local.md
 # OS
 .DS_Store
 Thumbs.db
+
+# pytest tmp dirs
+pytest-of-*/

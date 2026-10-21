@@ -40,6 +40,7 @@ Commands:
 | `memsearch transcript` | Progressive disclosure L3: view turns from a JSONL transcript 🔌 |
 | `memsearch stats` | Display index statistics (total chunk count) |
 | `memsearch reset` | Drop all indexed data from the Milvus collection |
+| `memsearch mcp` | Run an MCP server on stdio exposing memsearch as tools |
 
 > 🔌 Commands marked with 🔌 are designed for the [platform plugins](platforms/index.md)' progressive disclosure workflow, but work as standalone CLI tools too.
 
@@ -718,6 +719,65 @@ $ memsearch expand a1b2c3d4e5f6 --json-output
 - **Source file must exist.** The `expand` command reads the original markdown file from disk. If the source file has been moved or deleted, the command will fail with an error.
 - **Anchor parsing.** If the expanded text contains an HTML anchor comment in the format `<!-- session:ID turn:ID transcript:PATH -->`, the command parses it and displays the session, turn, and transcript file information. This connects memory chunks to their original conversation transcripts.
 - **Workflow: search then expand.** A typical workflow is to `search` first, note the `chunk_hash` from a result, then `expand` it to see more context.
+
+---
+
+## `memsearch mcp`
+
+Run a [Model Context Protocol](https://modelcontextprotocol.io) server on
+stdio. The server exposes memsearch as MCP tools — `memory_search`,
+`memory_index`, `memory_stats`, `memory_expand`, `embed`, `rerank` and
+(optionally) `knowledge_search` — so any MCP client can query the same
+index the CLI uses.
+
+It speaks JSON-RPC 2.0 over stdin/stdout, one JSON object per line,
+UTF-8 (the server forces UTF-8 on the streams; the default Windows pipe
+encoding is the console code page and would corrupt Chinese payloads).
+
+### Options
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--provider` | `-p` | `openai` | Embedding provider |
+| `--model` | `-m` | provider default | Override the embedding model |
+| `--base-url` | | *(none)* | OpenAI-compatible API base URL |
+| `--api-key` | | *(none)* | API key for the embedding provider |
+| `--collection` | `-c` | `memsearch_chunks` | Milvus collection name |
+| `--default-collection` | | *(none)* | Integration fallback used only when global/project config and `--collection` do not set a collection |
+| `--milvus-uri` | | `~/.memsearch/milvus.db` | Milvus connection URI |
+| `--milvus-token` | | *(none)* | Milvus auth token |
+| `--reranker-model` | | *(config)* | Cross-encoder model for reranking (empty string disables) |
+| `--knowledge-db` | | *(none)* | Knowledge store (SQLite) to expose as `knowledge_search` |
+| `--max-content-chars` | | `2000` | Truncate tool output content to this many characters |
+
+### Examples
+
+```bash
+# Codex (~/.codex/config.toml)
+[mcp_servers.memsearch]
+command = "memsearch"
+args = ["mcp"]
+
+# Claude Code
+claude mcp add memsearch -- memsearch mcp
+
+# Expose a DeepSeek Harness knowledge store as well
+memsearch mcp --knowledge-db ~/.dsh/storages/knowledge-chunks.sqlite
+```
+
+### Notes
+
+- **Same configuration as the CLI.** `~/.memsearch/config.toml` →
+  project `.memsearch.toml` → flags. A self-hosted backend behind an SSH
+  tunnel is just an OpenAI-compatible `base_url`.
+- **The knowledge store is read-only.** `knowledge_search` opens the
+  SQLite file with `mode=ro`, so a running knowledge plugin is never
+  disturbed. Without `--knowledge-db` (or `MEMSEARCH_KNOWLEDGE_DB`) the
+  tool is not advertised at all.
+- **Tools report errors as tool errors.** Invalid arguments come back
+  with `isError: true`; the server itself never dies on a bad call.
+
+> 📖 Full guide: [MCP server](mcp.md)
 
 ---
 

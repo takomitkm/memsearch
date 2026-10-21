@@ -666,6 +666,33 @@ memsearch reset --yes                              # drop all indexed data and r
 
 > 📖 Full CLI reference with all flags: [CLI docs](https://zilliztech.github.io/memsearch/cli/)
 
+### 🔌 MCP Server
+
+`memsearch mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server on stdio, so any MCP client (Codex, Claude Code, DeepSeek Harness, …)
+can call memory search, indexing and the embedding / rerank backends **as
+tools**. It uses the same config resolution and the same Python API as the
+CLI.
+
+```bash
+memsearch mcp                                        # honour ~/.memsearch/config.toml
+memsearch mcp -c my_collection                       # explicit collection
+memsearch mcp --knowledge-db ~/.dsh/storages/knowledge-chunks.sqlite
+```
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.memsearch]
+command = "memsearch"
+args = ["mcp"]
+```
+
+Tools: `memory_search`, `memory_index`, `memory_stats`, `memory_expand`,
+`embed`, `rerank` and — when a knowledge store is configured —
+`knowledge_search`.
+
+> 📖 Full guide: [MCP server docs](https://zilliztech.github.io/memsearch/mcp/)
+
 ## ⚙️ Configuration
 
 Embedding and Milvus backend settings → [Configuration (all platforms)](#️-configuration-all-platforms)
